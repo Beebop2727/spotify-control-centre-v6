@@ -1,0 +1,191 @@
+/*
+ * Spotify Control Centre stylesheet — V4
+ * Modified 24 July 2026.
+ *
+ * Derived from Spotify Controller by NarkAgni and Spotify Controls by
+ * Sonath21. GPL-3.0-or-later.
+ */
+
+/* ---------- Compact top-panel control ---------- */
+.spotify-compact-box {
+    spacing: 2px;
+}
+
+.spotify-logo-button,
+.spotify-panel-control-button {
+    padding: 2px 3px;
+    border-radius: 7px;
+    background-color: transparent;
+}
+
+.spotify-logo-button:hover,
+.spotify-panel-control-button:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.spotify-logo-button:active,
+.spotify-panel-control-button:active {
+    background-color: rgba(255, 255, 255, 0.20);
+}
+
+.spotify-logo-icon {
+    icon-size: 16px;
+}
+
+/* Deliberately use neutral white so the widget matches every other
+ * indicator in the GNOME panel rather than inheriting Catppuccin accents. */
+.spotify-panel-label-viewport {
+    width: 170px;
+    height: 22px;
+}
+
+.spotify-panel-label-track {
+    spacing: 28px;
+}
+
+.spotify-panel-label {
+    color: #ffffff;
+    font-family: "JetBrainsMono Nerd Font";
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.spotify-panel-controls {
+    spacing: 1px;
+}
+
+.spotify-panel-control-icon {
+    color: #ffffff;
+    icon-size: 14px;
+}
+
+/* ---------- Full-size popup card ---------- */
+.spotify-popup-menu {
+    background-color: #180f16;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42);
+    padding: 8px;
+}
+
+.popup-header-item,
+.album-art-item-container,
+.slider-item,
+.media-controls-item {
+    background-color: transparent;
+}
+
+.popup-header-item {
+    padding: 8px 12px 2px 12px;
+}
+
+.popup-header-label {
+    color: #ffffff;
+    font-weight: 800;
+    padding-bottom: 0;
+}
+
+.album-art-item-container {
+    padding: 12px;
+}
+
+.art-content-box {
+    spacing: 14px;
+}
+
+.album-art-icon {
+    color: #ffffff;
+    box-shadow: none;
+}
+
+.text-info-box {
+    spacing: 2px;
+    margin: 0;
+    text-align: center;
+}
+
+.track-title-label {
+    color: #ffffff;
+    font-weight: 800;
+    text-align: center;
+}
+
+.track-artist-label {
+    color: #d6d6dc;
+    font-weight: 500;
+    opacity: 0.85;
+    text-align: center;
+    padding-bottom: 0;
+    margin-bottom: 0;
+}
+
+.slider-item {
+    padding: 0 10px;
+    padding-bottom: 0;
+}
+
+.time-label {
+    color: #ffffff;
+    font-weight: 600;
+    opacity: 0.82;
+}
+
+.media-controls-item {
+    padding: 0 4px 12px 4px;
+}
+
+.media-controls-box {
+    spacing: 16px;
+    text-align: center;
+    padding: 5px 10px;
+}
+
+.popup-control-btn {
+    padding: 0;
+    margin: 0;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 22px;
+    background-color: transparent;
+    border: none;
+    transition-duration: 150ms;
+}
+
+.popup-control-btn:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+.popup-control-btn:active {
+    background-color: rgba(255, 255, 255, 0.22);
+}
+
+.large-control-btn {
+    width: 58px;
+    height: 58px;
+    min-width: 58px;
+    min-height: 58px;
+    border-radius: 29px;
+    background-color: #ffffff;
+    border: none;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.30);
+}
+
+.large-control-btn StIcon,
+.large-control-btn > StIcon {
+    color: #000000;
+}
+
+.large-control-btn:hover {
+    background-color: #eeeeee;
+}
+
+.lyrics-overlay-label {
+    background-color: rgba(0, 0, 0, 0.70);
+    border-radius: 99px;
+    padding: 8px 16px;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 12px;
+}

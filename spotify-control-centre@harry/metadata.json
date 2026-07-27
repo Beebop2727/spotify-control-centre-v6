@@ -1,0 +1,17 @@
+{
+  "description": "A compact fixed-width Spotify panel controller that reliably stays after the Space Bar workspace indicator, with continuous marquee text, a centred popup, square artwork, and last-track display while Spotify is open but stopped. Modified GPL-3.0 derivative of Spotify Controls by Sonath21 and Spotify Controller by NarkAgni.",
+  "extension-type": "shell-extension",
+  "name": "Spotify Control Centre",
+  "preferences": "prefs.js",
+  "settings-schema": "org.gnome.shell.extensions.spotify-control-centre",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "uuid": "spotify-control-centre@harry",
+  "version": 6
+}
