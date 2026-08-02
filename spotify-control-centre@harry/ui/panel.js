@@ -46,7 +46,7 @@ class MediaIndicator extends PanelMenu.Button {
             shuffle: () => this.activeProxy?.toggleShuffle(),
             repeat: () => this.activeProxy?.toggleRepeat(),
             seek: value => this.activeProxy?.controls().seek(value),
-        });
+        }, this._extensionPath);
 
         this._connectSetting('show-play-pause', () => this._applyVisibility());
         this._connectSetting('show-prev', () => this._applyVisibility());

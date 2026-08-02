@@ -132,7 +132,7 @@ export default class SpotifyControlCentrePrefs extends ExtensionPreferences {
 
         const bgModeRow = new Adw.ComboRow({
             title: 'Background Mode',
-            model: new Gtk.StringList({ strings: ['Ambient (Cover Art)', 'Custom Color'] })
+            model: new Gtk.StringList({ strings: ['Dynamic (Album Artwork)', 'Custom Color'] })
         });
         
         const bgModes = ['ambient', 'custom'];

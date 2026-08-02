@@ -22,17 +22,37 @@ Gio._promisify(Gio.File.prototype, "replace_contents_bytes_async", "replace_cont
 Gio._promisify(GdkPixbuf.Pixbuf, "new_from_stream_async", "new_from_stream_finish");
 
 export class MediaPopup {
-    constructor(menu, settings, controlsCallback) {
+    constructor(menu, settings, controlsCallback, extensionPath) {
         this._menu = menu;
         this._settings = settings;
         this._callbacks = controlsCallback;
+        this._extensionPath = extensionPath;
+        this._djImageUri = extensionPath
+            ? Gio.File.new_for_path(GLib.build_filenamev([
+                extensionPath, 'assets', 'spotify-dj.png',
+            ])).get_uri()
+            : null;
 
         this._isPlaying = false;
+
+        // PanelMenu wraps the content box in GNOME Shell's BoxPointer actor.
+        // Styling only menu.box leaves the shell theme's large dark popover
+        // surface visible behind our rounded card. Make that outer layer fully
+        // transparent, then draw the card and its subtle shadow on menu.box.
+        this._menu.actor?.add_style_class_name('spotify-popup-shell');
+        this._menu._boxPointer?.add_style_class_name?.('spotify-popup-shell');
+        this._menu._boxPointer?.actor?.add_style_class_name?.('spotify-popup-shell');
         this._menu.box.add_style_class_name('spotify-popup-menu');
 
         this._currentTrackHash = null;
         this._currentRGB = null;
         this._currentImageUri = null;
+        this._imageRequestSerial = 0;
+        this._djRefreshInFlight = false;
+        this._djRefreshRequestSerial = 0;
+        this._lastDjRefreshMs = 0;
+        this._djRefreshIntervalMs = 2500;
+        this._lastNonDjArtUrl = '';
 
         this._lyricsClient = new LyricsClient();
         this._isLyricsMode = false;
@@ -88,39 +108,137 @@ export class MediaPopup {
     }
 
     async updateTrack(info) {
-        const newHash = info.title + info.artist;
+        const isSpotifyDj = this._isSpotifyDjSegment(info);
+        const spotifyArtUrl = String(info?.artUrl || '').trim();
+        if (!isSpotifyDj && spotifyArtUrl)
+            this._lastNonDjArtUrl = spotifyArtUrl;
 
-        if (this._currentTrackHash !== newHash) {
+        // Some Spotify builds leave the previous song cover in MPRIS while DJ
+        // X is speaking. Do not mistake that stale URL for a live DJ visual.
+        const hasSpotifyDjArtwork = isSpotifyDj &&
+            Boolean(spotifyArtUrl) &&
+            spotifyArtUrl !== this._lastNonDjArtUrl;
+        const preferredArtUrl = hasSpotifyDjArtwork
+            ? spotifyArtUrl
+            : (isSpotifyDj ? this._djImageUri : spotifyArtUrl);
+        const newHash = `${info.title}|${info.artist}|${info.album}|${preferredArtUrl}|${isSpotifyDj}`;
+        const trackChanged = this._currentTrackHash !== newHash;
+        const nowMs = GLib.get_monotonic_time() / 1000;
+
+        // Spotify sometimes keeps the same MPRIS artwork URL throughout a DJ
+        // interlude while changing the image behind it. Re-request the URL at a
+        // restrained interval so V7 can follow that feed when it is available.
+        const shouldRefreshLiveDj = hasSpotifyDjArtwork &&
+            this._menu.isOpen &&
+            !this._djRefreshInFlight &&
+            (nowMs - this._lastDjRefreshMs >= this._djRefreshIntervalMs);
+
+        if (trackChanged) {
             this._resetAnimation();
             this._currentLyricsData = null;
             if (this._isLyricsMode) this._fetchLyrics(info);
-        }
-
-        if (this._currentTrackHash === newHash) {
+            this._currentTrackHash = newHash;
+            this._currentRGB = null;
+            this._lastDjRefreshMs = 0;
+        } else if (!shouldRefreshLiveDj) {
             this._checkRotationState();
             return;
         }
 
-        this._currentTrackHash = newHash;
-        this._currentRGB = null;
+        const requestSerial = ++this._imageRequestSerial;
+        const forceRefresh = !trackChanged && shouldRefreshLiveDj;
+        const refreshKey = forceRefresh
+            ? `dj_${Math.floor(nowMs)}`
+            : '';
+
+        if (hasSpotifyDjArtwork) {
+            this._djRefreshInFlight = true;
+            this._djRefreshRequestSerial = requestSerial;
+            this._lastDjRefreshMs = nowMs;
+        }
 
         try {
-            const result = await this.loadImage(info.artUrl);
+            let result = await this.loadImage(preferredArtUrl, {
+                forceRefresh,
+                cacheKeySuffix: refreshKey,
+            });
+
+            // The static asset is deliberately a fallback only. It is used if
+            // Spotify publishes no DJ image or its live artwork request fails.
+            if (!result && isSpotifyDj && this._djImageUri &&
+                preferredArtUrl !== this._djImageUri) {
+                result = await this.loadImage(this._djImageUri);
+            }
+
+            if (requestSerial !== this._imageRequestSerial ||
+                this._currentTrackHash !== newHash)
+                return;
+
             if (result) {
                 this._currentImageUri = result.uri;
-                if (result.color) this._currentRGB = result.color;
+                if (result.color)
+                    this._currentRGB = result.color;
                 this.garbageCollect(result.id);
             } else {
                 this._currentImageUri = null;
                 this.garbageCollect('LOCAL');
             }
         } catch (e) {
-            this._currentImageUri = null;
+            if (requestSerial === this._imageRequestSerial)
+                this._currentImageUri = null;
+        } finally {
+            if (hasSpotifyDjArtwork &&
+                this._djRefreshRequestSerial === requestSerial) {
+                this._djRefreshInFlight = false;
+                this._djRefreshRequestSerial = 0;
+            }
         }
+
+        if (requestSerial !== this._imageRequestSerial)
+            return;
 
         this._updateStyles();
         this._updateBackground();
         this._checkRotationState();
+    }
+
+    _isSpotifyDjSegment(info) {
+        if (!info)
+            return false;
+
+        const title = String(info.title || '').trim().toLowerCase();
+        const artist = String(info.artist || '').trim().toLowerCase();
+        const album = String(info.album || '').trim().toLowerCase();
+        const trackId = String(info.trackId || '').trim().toLowerCase();
+        const combined = `${title} ${artist} ${album}`;
+
+        const exactDjTitle = new Set([
+            'dj',
+            'dj x',
+            'spotify dj',
+            'spotify ai dj',
+            'your dj',
+            'your ai dj',
+        ]).has(title);
+
+        const explicitSpotifyDj =
+            combined.includes('spotify dj') ||
+            combined.includes('spotify ai dj') ||
+            combined.includes('your ai dj') ||
+            combined.includes('dj x');
+
+        const spotifyOwned =
+            artist === 'spotify' ||
+            artist.startsWith('spotify ') ||
+            album.includes('spotify dj');
+
+        // Spotify's spoken DJ interludes commonly have no ordinary album art.
+        // Requiring an explicit DJ marker, plus either Spotify ownership or
+        // missing artwork, avoids replacing legitimate songs whose title
+        // happens to be "DJ".
+        return explicitSpotifyDj ||
+            (exactDjTitle && (spotifyOwned || !info.artUrl)) ||
+            (trackId.includes(':dj:') && !info.artUrl);
     }
 
     _updateBackground() {
@@ -128,23 +246,126 @@ export class MediaPopup {
         const artSize = this._settings.get_int('cover-art-size');
         const menuWidth = artSize + 52;
         const fallbackColor = this._settings.get_string('custom-bg-color') || '#180f16';
-        let style = `min-width: ${menuWidth}px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42); background-color: ${fallbackColor};`;
+        const baseStyle = `
+            min-width: ${menuWidth}px;
+            border-radius: 22px;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            box-shadow: none;
+            transition-duration: 350ms;
+        `;
 
-        if (mode === 'custom') {
-            const color = this._settings.get_string('custom-bg-color');
-            style = `min-width: ${menuWidth}px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42); background-color: ${color};`;
-        } else if (mode === 'ambient' && this._currentRGB) {
+        let style = `${baseStyle} background-color: ${fallbackColor};`;
+
+        if (mode === 'ambient' && this._currentRGB) {
+            const palette = this._buildAmbientPalette(this._currentRGB);
             style = `
-                min-width: ${menuWidth}px;
-                border-radius: 20px;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42);
+                ${baseStyle}
+                background-color: rgb(${palette.end.r}, ${palette.end.g}, ${palette.end.b});
                 background-gradient-direction: vertical;
-                background-gradient-start: rgba(${this._currentRGB}, 0.92);
-                background-gradient-end: rgba(12, 8, 12, 0.98);
+                background-gradient-start: rgba(${palette.start.r}, ${palette.start.g}, ${palette.start.b}, 0.97);
+                background-gradient-end: rgba(${palette.end.r}, ${palette.end.g}, ${palette.end.b}, 0.99);
             `;
         }
+
         this._menu.box.style = style;
+    }
+
+    _rgbToHsl(r, g, b) {
+        r /= 255;
+        g /= 255;
+        b /= 255;
+
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const lightness = (max + min) / 2;
+        const delta = max - min;
+
+        if (delta === 0)
+            return { h: 0, s: 0, l: lightness };
+
+        const saturation = delta / (1 - Math.abs((2 * lightness) - 1));
+        let hue;
+
+        if (max === r)
+            hue = 60 * (((g - b) / delta) % 6);
+        else if (max === g)
+            hue = 60 * (((b - r) / delta) + 2);
+        else
+            hue = 60 * (((r - g) / delta) + 4);
+
+        if (hue < 0)
+            hue += 360;
+
+        return { h: hue, s: saturation, l: lightness };
+    }
+
+    _hslToRgb(h, s, l) {
+        const chroma = (1 - Math.abs((2 * l) - 1)) * s;
+        const segment = h / 60;
+        const x = chroma * (1 - Math.abs((segment % 2) - 1));
+        let r1 = 0;
+        let g1 = 0;
+        let b1 = 0;
+
+        if (segment < 1) [r1, g1, b1] = [chroma, x, 0];
+        else if (segment < 2) [r1, g1, b1] = [x, chroma, 0];
+        else if (segment < 3) [r1, g1, b1] = [0, chroma, x];
+        else if (segment < 4) [r1, g1, b1] = [0, x, chroma];
+        else if (segment < 5) [r1, g1, b1] = [x, 0, chroma];
+        else [r1, g1, b1] = [chroma, 0, x];
+
+        const match = l - (chroma / 2);
+        return {
+            r: Math.round((r1 + match) * 255),
+            g: Math.round((g1 + match) * 255),
+            b: Math.round((b1 + match) * 255),
+        };
+    }
+
+    _mixColor(first, second, amount) {
+        const keep = 1 - amount;
+        return {
+            r: Math.round((first.r * keep) + (second.r * amount)),
+            g: Math.round((first.g * keep) + (second.g * amount)),
+            b: Math.round((first.b * keep) + (second.b * amount)),
+        };
+    }
+
+    _relativeLuminance(color) {
+        const linearise = value => {
+            const channel = value / 255;
+            return channel <= 0.03928
+                ? channel / 12.92
+                : Math.pow((channel + 0.055) / 1.055, 2.4);
+        };
+
+        return (0.2126 * linearise(color.r)) +
+            (0.7152 * linearise(color.g)) +
+            (0.0722 * linearise(color.b));
+    }
+
+    _buildAmbientPalette(color) {
+        const hsl = this._rgbToHsl(color.r, color.g, color.b);
+        const isNeutral = hsl.s < 0.10;
+        const saturation = isNeutral
+            ? 0
+            : Math.min(0.78, Math.max(0.42, hsl.s * 1.12));
+        let lightness = Math.min(0.42, Math.max(0.25, hsl.l * 0.82));
+        let start = this._hslToRgb(hsl.h, saturation, lightness);
+
+        // HSL lightness is not perceived brightness: yellow and green can still
+        // be dazzling at the same numeric value. Darken until white reaches a
+        // normal-text contrast ratio of at least 4.5:1.
+        while ((1.05 / (this._relativeLuminance(start) + 0.05)) < 4.5 &&
+               lightness > 0.16) {
+            lightness -= 0.02;
+            start = this._hslToRgb(hsl.h, saturation, lightness);
+        }
+
+        // A deep tinted lower edge gives the popup the soft, hazy depth used by
+        // dynamic Spicetify themes without changing any button foregrounds.
+        const end = this._mixColor(start, { r: 10, g: 8, b: 12 }, 0.68);
+        return { start, end };
     }
 
     _buildUI() {
@@ -618,13 +839,88 @@ export class MediaPopup {
 
     _extractColor(pixbuf) {
         try {
-            const scaled = pixbuf.scale_simple(1, 1, GdkPixbuf.InterpType.TILES);
+            // Hazy chooses a prominent cover colour after rejecting pixels that
+            // are too dark or too close to white. Quantising nearby JPEG colours
+            // into small buckets keeps that behaviour stable with compressed art.
+            const scaled = pixbuf.scale_simple(48, 48, GdkPixbuf.InterpType.BILINEAR);
+            if (!scaled)
+                return null;
+
             const pixels = scaled.get_pixels();
-            return `${pixels[0]}, ${pixels[1]}, ${pixels[2]}`;
-        } catch (e) { return null; }
+            const width = scaled.get_width();
+            const height = scaled.get_height();
+            const channels = scaled.get_n_channels();
+            const rowstride = scaled.get_rowstride();
+            const hasAlpha = scaled.get_has_alpha();
+            const filteredBuckets = new Map();
+            const allBuckets = new Map();
+
+            const addToBucket = (buckets, r, g, b, weight) => {
+                // Four bits per channel are enough to merge compression noise
+                // without collapsing distinct colours into the same group.
+                const key = `${r >> 4}:${g >> 4}:${b >> 4}`;
+                const bucket = buckets.get(key) || {
+                    r: 0, g: 0, b: 0, weight: 0,
+                };
+
+                bucket.r += r * weight;
+                bucket.g += g * weight;
+                bucket.b += b * weight;
+                bucket.weight += weight;
+                buckets.set(key, bucket);
+            };
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const offset = (y * rowstride) + (x * channels);
+                    const alpha = hasAlpha ? pixels[offset + 3] / 255 : 1;
+                    if (alpha < 0.35)
+                        continue;
+
+                    const r = pixels[offset];
+                    const g = pixels[offset + 1];
+                    const b = pixels[offset + 2];
+                    const brightness = (0.299 * r) + (0.587 * g) + (0.114 * b);
+                    const tooDark = brightness < 100;
+                    const tooCloseToWhite = r > 200 && g > 200 && b > 200;
+
+                    addToBucket(allBuckets, r, g, b, alpha);
+                    if (!tooDark && !tooCloseToWhite)
+                        addToBucket(filteredBuckets, r, g, b, alpha);
+                }
+            }
+
+            const mostProminent = buckets => {
+                let winner = null;
+                let winnerWeight = -1;
+
+                for (const bucket of buckets.values()) {
+                    if (bucket.weight > winnerWeight) {
+                        winner = bucket;
+                        winnerWeight = bucket.weight;
+                    }
+                }
+
+                if (!winner || winner.weight <= 0)
+                    return null;
+
+                return {
+                    r: Math.round(winner.r / winner.weight),
+                    g: Math.round(winner.g / winner.weight),
+                    b: Math.round(winner.b / winner.weight),
+                };
+            };
+
+            // Match Hazy's behaviour: retry without the brightness filters when
+            // the artwork is almost entirely black, white or monochrome.
+            return mostProminent(filteredBuckets) || mostProminent(allBuckets);
+        } catch (e) {
+            console.warn(`[SpotifyControlCentre] Colour extraction failed: ${e.message}`);
+            return null;
+        }
     }
 
-    async loadImage(artUrl) {
+    async loadImage(artUrl, options = {}) {
         if (!artUrl) return null;
 
         try {
@@ -634,9 +930,15 @@ export class MediaPopup {
             }
 
             // 2. Prepare Filename
+            const forceRefresh = Boolean(options.forceRefresh);
+            const cacheKeySuffix = String(options.cacheKeySuffix || '')
+                .replace(/[^a-z0-9_-]/gi, '_');
             const urlParts = artUrl.split('/');
             let uniqueID = urlParts[urlParts.length - 1].split('?')[0].replace(/[^a-z0-9]/gi, '_');
-            if (!uniqueID || uniqueID.length < 2) uniqueID = "image_" + Math.floor(Math.random() * 10000);
+            if (!uniqueID || uniqueID.length < 2)
+                uniqueID = "image_" + Math.floor(Math.random() * 10000);
+            if (cacheKeySuffix)
+                uniqueID = `${uniqueID}_${cacheKeySuffix}`;
 
             const fileName = `${uniqueID}.jpg`;
             const filePath = GLib.build_filenamev([this._cacheDir, fileName]);
@@ -653,8 +955,8 @@ export class MediaPopup {
                     fileReady = true; 
                 }
             } else {
-                if (file.query_exists(null)) { 
-                    fileReady = true; 
+                if (file.query_exists(null) && !forceRefresh) {
+                    fileReady = true;
                 } else {
                     const msg = Soup.Message.new('GET', artUrl);
                     msg.request_headers.append('User-Agent', 'Mozilla/5.0');

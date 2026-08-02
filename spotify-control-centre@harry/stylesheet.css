@@ -1,5 +1,5 @@
 /*
- * Spotify Control Centre stylesheet — V4
+ * Spotify Control Centre stylesheet — V7
  * Modified 24 July 2026.
  *
  * Derived from Spotify Controller by NarkAgni and Spotify Controls by
@@ -59,12 +59,31 @@
     icon-size: 14px;
 }
 
+
+/* GNOME Shell normally paints a second, larger BoxPointer popover behind the
+ * extension content. Keep that structural actor for positioning, remove its
+ * visible black surface, and use only its rounded silhouette for a tiny shadow. */
+.spotify-popup-shell {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    /* A 1% alpha fill gives BoxPointer a rounded silhouette from which it can
+     * render a soft shadow without producing another visible black card. */
+    -arrow-background-color: rgba(0, 0, 0, 0.01);
+    -arrow-border-color: transparent;
+    -arrow-border-width: 0px;
+    -arrow-border-radius: 22px;
+    -arrow-base: 0px;
+    -arrow-rise: 0px;
+    -arrow-box-shadow: 0 3px 8px rgba(0, 0, 0, 0.16);
+}
+
 /* ---------- Full-size popup card ---------- */
 .spotify-popup-menu {
     background-color: #180f16;
-    border-radius: 20px;
+    border-radius: 22px;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42);
+    box-shadow: none;
     padding: 8px;
 }
 

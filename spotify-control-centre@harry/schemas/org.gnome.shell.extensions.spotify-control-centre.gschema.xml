@@ -57,7 +57,7 @@
         <key name="last-track-length" type="s"><default>'0'</default></key>
 
         <key name="bg-mode" type="s">
-            <default>'custom'</default>
+            <default>'ambient'</default>
         </key>
         <key name="custom-bg-color" type="s">
             <default>'#180f16'</default>

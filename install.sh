@@ -28,9 +28,9 @@ fi
 cp -a "$SOURCE_DIR" "$DEST_DIR"
 glib-compile-schemas "$DEST_DIR/schemas"
 
-# Apply the V6 compact layout and visual preset even when older GSettings values exist.
+# Apply the V7 compact layout and visual preset even when older GSettings values exist.
 GSETTINGS=(gsettings --schemadir "$DEST_DIR/schemas")
-"${GSETTINGS[@]}" set "$SCHEMA" bg-mode 'custom'
+"${GSETTINGS[@]}" set "$SCHEMA" bg-mode 'ambient'
 "${GSETTINGS[@]}" set "$SCHEMA" custom-bg-color '#180f16'
 "${GSETTINGS[@]}" set "$SCHEMA" header-font-size 12
 "${GSETTINGS[@]}" set "$SCHEMA" header-text-color '#ffffff'
@@ -61,7 +61,7 @@ GSETTINGS=(gsettings --schemadir "$DEST_DIR/schemas")
 "${GSETTINGS[@]}" set "$SCHEMA" art-pad-right 12
 
 echo
-echo "Installed Spotify Control Centre V6."
+echo "Installed Spotify Control Centre V7 (live Spotify DJ artwork)."
 echo "Log out and back in, then run:"
 echo "  gnome-extensions disable spotify-controls@Sonath21"
 echo "  gnome-extensions disable spotify-controller@narkagni"
